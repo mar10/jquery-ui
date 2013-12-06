@@ -19,11 +19,13 @@ $.widget( "ui.menu", {
 	version: "@VERSION",
 	defaultElement: "<ul>",
 	delay: 300,
+	aimDelay: 300,
 	options: {
 		icons: {
 			submenu: "ui-icon-carat-1-e"
 		},
 		items: "> *",
+		menuAim: false,
 		menus: "ul",
 		position: {
 			my: "left-1 top",
@@ -64,6 +66,10 @@ $.widget( "ui.menu", {
 				.attr( "aria-disabled", "true" );
 		}
 
+		if ( this.options.menuAim ) {
+			this.delay = 0;
+		}
+
 		this._on({
 			// Prevent focus from sticking to links inside menu after clicking
 			// them (focus should always stay on UL during navigation).
@@ -99,12 +105,13 @@ $.widget( "ui.menu", {
 					}
 				}
 			},
+			"mousemove .ui-menu-item": function( event ) {
+				if( this.options.menuAim ) {
+					this._aimTrack( null, event );
+				}
+			},
 			"mouseenter .ui-menu-item": function( event ) {
-				var target = $( event.currentTarget );
-				// Remove ui-state-active class from siblings of the newly focused menu item
-				// to avoid a jump caused by adjacent elements both having a class with a border
-				target.siblings( ".ui-state-active" ).removeClass( "ui-state-active" );
-				this.focus( event, target );
+				return this._mouseenter( event );
 			},
 			mouseleave: "collapseAll",
 			"mouseleave .ui-menu": "collapseAll",
@@ -176,6 +183,33 @@ $.widget( "ui.menu", {
 
 		// Destroy menu dividers
 		this.element.find( ".ui-menu-divider" ).removeClass( "ui-menu-divider ui-widget-content" );
+	},
+
+	_mouseenter: function( event ) {
+		clearTimeout( this.timer );
+	
+		var target = $( event.currentTarget );
+		target.css("border-color", "magenta")
+		// Remove ui-state-active class from siblings of the newly focused menu item
+		// to avoid a jump caused by adjacent elements both having a class with a border
+		target.siblings( ".ui-state-active" ).removeClass( "ui-state-active" );
+
+		// If the user intends to navigate to the submenu, delay the mousenter
+		// event for for other menu entries
+		if( this.options. menuAim ) {
+			console.info( "mouseenter",  "" + target[0].firstChild.textContent);
+			if( this._aimIntended(event) ) {
+				console.info( "mouseenter DELAYED", target.text());
+				target.css("border-color", "green")
+				this.timer = this._delay(function() {
+					console.info( "mouseenter RETRIGGER", target.text());
+					target.css("border-color", "cyan")
+					this._mouseenter( event );
+				}, this.aimDelay );
+				return true;
+			}
+		}
+		this.focus( event, target );
 	},
 
 	_keydown: function( event ) {
@@ -360,11 +394,15 @@ $.widget( "ui.menu", {
 				.toggleClass( "ui-state-disabled", !!value )
 				.attr( "aria-disabled", value );
 		}
+		if ( key === "menuAim" ) {
+			this.delay = value ? 0 : 300;
+		}
 		this._super( key, value );
 	},
 
 	focus: function( event, item ) {
 		var nested, focused;
+		// console.info( "focus");
 		this.blur( event, event && event.type === "focus" );
 
 		this._scrollIntoView( item );
@@ -393,7 +431,7 @@ $.widget( "ui.menu", {
 
 		nested = item.children( ".ui-menu" );
 		if ( nested.length && event && ( /^mouse/.test( event.type ) ) ) {
-			this._startOpening(nested);
+			this._startOpening(nested, event);
 		}
 		this.activeMenu = item.parent();
 
@@ -419,6 +457,7 @@ $.widget( "ui.menu", {
 	},
 
 	blur: function( event, fromFocus ) {
+		// console.info( "blur");
 		if ( !fromFocus ) {
 			clearTimeout( this.timer );
 		}
@@ -433,7 +472,8 @@ $.widget( "ui.menu", {
 		this._trigger( "blur", event, { item: this.active } );
 	},
 
-	_startOpening: function( submenu ) {
+	_startOpening: function( submenu, event ) {
+		// console.info( "_startOpening");
 		clearTimeout( this.timer );
 
 		// Don't open if already open fixes a Firefox bug that caused a .5 pixel
@@ -444,11 +484,12 @@ $.widget( "ui.menu", {
 
 		this.timer = this._delay(function() {
 			this._close();
-			this._open( submenu );
+			this._open( submenu, event );
 		}, this.delay );
 	},
 
-	_open: function( submenu ) {
+	_open: function( submenu, event ) {
+		// console.info( "_open");
 		var position = $.extend({
 			of: this.active
 		}, this.options.position );
@@ -463,10 +504,16 @@ $.widget( "ui.menu", {
 			.removeAttr( "aria-hidden" )
 			.attr( "aria-expanded", "true" )
 			.position( position );
+
+		if ( this.options.menuAim && event ) {
+			this._aimTrack( submenu, event );
+		}
 	},
 
 	collapseAll: function( event, all ) {
+		// console.info( "collapseAll");
 		clearTimeout( this.timer );
+
 		this.timer = this._delay(function() {
 			// If we were passed an event, look for the submenu that contains the event
 			var currentMenu = all ? this.element :
@@ -487,6 +534,7 @@ $.widget( "ui.menu", {
 	// With no arguments, closes the currently active menu - if nothing is active
 	// it closes all menus.  If passed an argument, it will search for menus BELOW
 	_close: function( startMenu ) {
+		// console.info( "_close");
 		if ( !startMenu ) {
 			startMenu = this.active ? this.active.parent() : this.element;
 		}
@@ -499,6 +547,10 @@ $.widget( "ui.menu", {
 			.end()
 			.find( ".ui-state-active" ).not( ".ui-state-focus" )
 				.removeClass( "ui-state-active" );
+
+		if( this.options. menuAim ) {
+			this._aimTrack( null, null );
+		}
 	},
 
 	_closeOnDocumentClick: function( event ) {
@@ -506,6 +558,7 @@ $.widget( "ui.menu", {
 	},
 
 	collapse: function( event ) {
+		// console.info( "collapse");
 		var newItem = this.active &&
 			this.active.parent().closest( ".ui-menu-item", this.element );
 		if ( newItem && newItem.length ) {
@@ -628,7 +681,80 @@ $.widget( "ui.menu", {
 			this.collapseAll( event, true );
 		}
 		this._trigger( "select", event, ui );
+	},
+	
+	_aimTrack: function( submenu, event ) {
+		var subOfs, prevPos,
+			extend = 3, // inflate corridor triangle to compensate for rounding errors
+			historyLength = 3,
+			ptCur = event && { x: event.pageX, y: event.pageY },
+			aim = this.element.data("menu-aim"),
+			time = new Date().getTime();
+
+		if( submenu ) {
+			// re-start tracking when a new submenu was opened
+			subOfs = submenu.offset();
+			this.element.data("menu-aim", {
+				submenu: submenu,
+				last: time,
+				// cursor position when submenu was opened
+				// pt0: ptCur,
+				// upper and lower corner of the nearest (left or right) submenu border
+				pt1: { x: subOfs.left, y: subOfs.top - extend },
+				pt2: { x: subOfs.left, y: subOfs.top + submenu.outerHeight() + extend },
+				// last 3 tracked points
+				lastPoints: [ ptCur ],
+				// true if submenu was opened at the left of the cursor
+				isLeft: (subOfs.left < event.pageX)
+			});
+		} else if( event && aim ) {
+			// update tracking on mousemove
+			aim.lastPoints.push( ptCur );
+			if( aim.lastPoints.length > historyLength) {
+				aim.lastPoints.splice(0, aim.lastPoints.length - historyLength);
+			}
+			prevPos = aim.lastPoints[0];
+			aim.last = time;
+		} else {
+			// stop tracking when submenu was closed
+			this.element.data("menu-aim", null);
+		}
+		// console.info( "_aimTrack" );
+	},
+
+	_aimIntended: function( event ) {
+		var aim = this.element.data("menu-aim"),
+			res = true;
+
+		if( !aim ) {
+			return false;
+		}
+		if( (new Date().getTime() - aim.last) > 1000 ) {
+			res = false; // no movement for some time
+		} else if( aim.lastPoints.length >= 3 && !pointInTriangle(aim.lastPoints[2], aim.lastPoints[0], aim.pt1, aim.pt2) ){
+			res = false; // pointer was moved  away from submenu, i.e. outside the corridor
+		    // console.info("_aimIntended outside", aim.lastPoints[2], aim.lastPoints[0], aim.pt1, aim.pt2);
+		}
+		if( !res ) {
+			// once we said 'false', it remains false until a new submenu is opened
+			this.element.data("menu-aim", null);
+		}
+		aim.submenu.css("color", res ? "red" : "inherit");
+		// console.info( "_aimIntended", res);
+		return res;
 	}
+
 });
+
+function pointInTriangle(pt, v1, v2, v3) {
+	function sign(p1, p2, p3) {
+	    return (p1.x - p3.x) * (p2.y - p3.y) - (p2.x - p3.x) * (p1.y - p3.y);
+	}
+	var b1 = sign(pt, v1, v2) < 0.0,
+		b2 = sign(pt, v2, v3) < 0.0,
+		b3 = sign(pt, v3, v1) < 0.0;
+
+	return ((b1 === b2) && (b2 === b3));
+}
 
 }( jQuery ));
